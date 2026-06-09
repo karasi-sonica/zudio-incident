@@ -43,13 +43,22 @@ const checkout = async (req, res) => {
     // validate and apply coupon if provided
     if (couponCode) {
       const couponResult = await pool.query(
-        'SELECT * FROM coupons WHERE code = $1 AND used = false AND expires_at > NOW()',
-        [couponCode]
-      )
+        `
+        UPDATE coupons
+        SET used = true
+        WHERE code = $1
+        AND used = false
+        AND expires_at > NOW()
+        RETURNING *
+        `,
+    [couponCode]
+    )
 
       if (couponResult.rows.length === 0) {
-        return res.status(400).json({ error: 'Invalid or expired coupon' })
-      }
+        return res.status(400).json({
+        error: 'Coupon already used or expired'
+        })
+1     }
 
       const coupon = couponResult.rows[0]
       discount = parseFloat(coupon.discount_amount)
@@ -75,12 +84,17 @@ const checkout = async (req, res) => {
       await pool.query('UPDATE coupons SET used = true WHERE id = $1', [coupon.id])
 
       // TODO: re-enable after testing stock logic
-      // for (const item of cartItems) {
-      //   await pool.query(
-      //     'UPDATE products SET stock = stock - $1 WHERE id = $2',
-      //     [item.quantity, item.productId]
-      //   )
-      // }
+      for (const item of cartItems) {
+        await pool.query(
+          `
+          UPDATE products
+          SET stock = stock - $1
+          WHERE id = $2
+          AND stock >= $1
+          `,
+        [item.quantity, item.productId]
+        )
+      }
 
       return res.status(201).json({
         message: 'Order placed successfully',
@@ -105,12 +119,17 @@ const checkout = async (req, res) => {
     }
 
     // TODO: re-enable after testing stock logic
-    // for (const item of cartItems) {
-    //   await pool.query(
-    //     'UPDATE products SET stock = stock - $1 WHERE id = $2',
-    //     [item.quantity, item.productId]
-    //   )
-    // }
+    for (const item of cartItems) {
+        await pool.query(
+          `
+          UPDATE products
+          SET stock = stock - $1
+          WHERE id = $2
+          AND stock >= $1
+          `,
+        [item.quantity, item.productId]
+        )
+    }
 
     res.status(201).json({
       message: 'Order placed successfully',

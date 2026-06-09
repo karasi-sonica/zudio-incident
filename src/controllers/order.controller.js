@@ -5,38 +5,62 @@ const getOrderHistory = async (req, res) => {
   try {
     const userId = req.user.userId
 
-    // fetch all orders for this user
-    const ordersResult = await pool.query(
-      'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC',
+    const result = await pool.query(
+      `
+      SELECT
+        o.id AS order_id,
+        o.status,
+        o.total_amount,
+        o.created_at,
+
+        oi.id AS order_item_id,
+        oi.quantity,
+        oi.unit_price,
+
+        p.id AS product_id,
+        p.name,
+        p.price,
+        p.image_url
+
+      FROM orders o
+      JOIN order_items oi
+        ON oi.order_id = o.id
+      JOIN products p
+        ON p.id = oi.product_id
+
+      WHERE o.user_id = $1
+      ORDER BY o.created_at DESC
+      `,
       [userId]
     )
 
-    const orders = ordersResult.rows
+    const ordersMap = {}
 
-    // now we need to get the items for each order
-    for (const order of orders) {
-      const itemsResult = await pool.query(
-        'SELECT * FROM order_items WHERE order_id = $1',
-        [order.id]
-      )
-
-      const items = []
-
-      // get product details for each item in the order
-      for (const item of itemsResult.rows) {
-        const productResult = await pool.query(
-          'SELECT id, name, price, image_url FROM products WHERE id = $1',
-          [item.product_id]
-        )
-
-        items.push({
-          ...item,
-          product: productResult.rows[0] || null,
-        })
+    result.rows.forEach(row => {
+      if (!ordersMap[row.order_id]) {
+        ordersMap[row.order_id] = {
+          id: row.order_id,
+          status: row.status,
+          total_amount: row.total_amount,
+          created_at: row.created_at,
+          items: []
+        }
       }
 
-      order.items = items
-    }
+      ordersMap[row.order_id].items.push({
+        id: row.order_item_id,
+        quantity: row.quantity,
+        unit_price: row.unit_price,
+        product: {
+          id: row.product_id,
+          name: row.name,
+          price: row.price,
+          image_url: row.image_url
+        }
+      })
+    })
+
+    const orders = Object.values(ordersMap)
 
     res.json({ orders })
   } catch (err) {
